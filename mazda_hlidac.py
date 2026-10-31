@@ -170,9 +170,9 @@ def main():
         return 0
 
     stav_pred = nacti_stav()
-    prvni_beh = stav_pred is None
     stav_pred = stav_pred or {}
-    stav = {"volno": {}, "chyby": 0, "chyba_hlasena": False}
+    prvni_beh = not stav_pred.get("start_hlasen")
+    stav = {"volno": {}, "chyby": 0, "chyba_hlasena": False, "start_hlasen": True}
 
     session = requests.Session()
     session.headers["User-Agent"] = UA
@@ -182,7 +182,7 @@ def main():
         kalendare = {m: nacti_kalendar(session, m) for m in mesice}
     except (FlowError, requests.RequestException) as e:
         stav = dict(stav_pred, chyby=stav_pred.get("chyby", 0) + 1)
-        print(f"Chyba: {e} (po sobě {stav['chyby']}x)")
+        print(f"::warning title=Kontrola selhala::{e} (po sobě {stav['chyby']}x)")
         # ohlásit až po 4 neúspěšných bězích za sebou (~1 h), a jen jednou
         if stav["chyby"] >= 4 and not stav_pred.get("chyba_hlasena"):
             posli(topic, "Hlídač Mazdy nefunguje",
@@ -196,7 +196,7 @@ def main():
     plne, jedno = [], []  # nové / změněné dny s dostatkem míst, resp. jen 1 místem
     for d in dny:
         mist, text = kalendare[d.strftime("%Y%m")].get(d.day, (0, "?"))
-        print(f"{fmt(d)}: {text} -> volných míst: {mist}")
+        print(f"::notice title={fmt(d)}::{text} (volných míst: {mist})")
         klic = d.isoformat()
         if mist >= 1:
             stav["volno"][klic] = text
