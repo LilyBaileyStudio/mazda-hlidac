@@ -54,16 +54,20 @@ def aktualni_krok(html):
 def parse_kalendar(html, mesic):
     """Vrátí {den_v_mesici: (je_volno, text_stavu)} z kroku 2."""
     soup = BeautifulSoup(html, "html.parser")
-    lang = soup.find("input", {"name": "guide_lang_hidden"})
-    month = soup.find("input", {"name": "specified_month_hidden"})
-    if not lang or lang.get("value") != JAZYK:
-        raise FlowError("kalendář není pro angličtinu")
-    if not month or month.get("value") != mesic:
-        raise FlowError(f"kalendář není pro měsíc {mesic}")
-
     table = soup.select_one('[data-input-type="calendar"] table')
     if not table:
         raise FlowError("na stránce není tabulka s termíny")
+    # anglická prohlídka je jen 14:15–16:15 (japonské mají jiné časy)
+    hlavicka = " ".join(table.select_one("thead").get_text(" ", strip=True).split()) \
+        if table.select_one("thead") else ""
+    sloty = table.select("thead th")
+    if len(sloty) != 1 or "14:15" not in hlavicka:
+        raise FlowError(f"kalendář není pro angličtinu (časy: {hlavicka})")
+    zkratka = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.",
+               "Sep.", "Oct.", "Nov.", "Dec."][int(mesic[4:]) - 1]
+    prvni = table.select_one("tbody th")
+    if not prvni or not prvni.get_text(strip=True).startswith(zkratka):
+        raise FlowError(f"kalendář není pro měsíc {mesic}")
 
     vysledek = {}
     for tr in table.select("tbody tr"):
@@ -78,13 +82,15 @@ def parse_kalendar(html, mesic):
         ma_radio = td.find("input", {"type": "radio"}) is not None
         n = re.search(r"(\d+)\s*places?\s+available", text, re.I)
 
-        if "fully booked" in text.lower() or "closed" in text.lower():
+        nizko = text.lower()
+        if (not text or text in ("―", "-", "—", "–", "×")
+                or any(k in nizko for k in ("fully booked", "closed", "not available", "unavailable"))):
             mist = 0
         elif n:
             mist = int(n.group(1))
         else:
             # neznámý stav (např. jen tlačítko k výběru) – brát jako volno
-            mist = POCET_OSOB if (ma_radio or text) else 0
+            mist = POCET_OSOB
         if ma_radio:
             mist = max(mist, POCET_OSOB)
         vysledek[den] = (mist, text or "(volno)")
@@ -144,14 +150,6 @@ def nacti_kalendar(session, mesic):
     if aktualni_krok(r.text) != "2":
         raise FlowError("nepodařilo se dostat do kroku 2 | " + popis_stranky(r.text))
     fid = flow_id(r.text)
-    print("::notice title=Ladění (krok 2 před výběrem jazyka)::" + popis_stranky(r.text))
-    soup = BeautifulSoup(r.text, "html.parser")
-    for i, f in enumerate(soup.find_all("form")):
-        for t in f.select("table, p, ul.mm-input-error, .mm-box-large"):
-            t.decompose()
-        raw = " ".join(str(f).split())
-        print(f"::notice title=Ladění formulář {i}::" + raw[:4000].replace("%", "%25"))
-    print("::notice title=Ladění cookies::" + ", ".join(session.cookies.keys()))
 
     # krok 2: jazyk + měsíc (stejné jako přepnutí výběru na stránce)
     r = post(session, url_sched, {
@@ -159,15 +157,6 @@ def nacti_kalendar(session, mesic):
         "guide_lang": JAZYK,
         "specified_month_1": mesic,
     }, url_sched)
-    soup = BeautifulSoup(r.text, "html.parser")
-    cal = soup.select_one('[data-input-type="calendar"]')
-    raw = " ".join(str(cal).split()) if cal else "(bez kalendáře)"
-    print("::notice title=Ladění kalendář začátek::" + raw[:5000].replace("%", "%25"))
-    i = raw.find("Nov. 26")
-    print("::notice title=Ladění kalendář 26.::" + raw[max(0, i - 200):i + 1500].replace("%", "%25"))
-    skripty = [" ".join(sc.get_text().split())[:1500] for sc in soup.find_all("script")
-               if sc.get_text().strip() and "BOOMR" not in sc.get_text() and "gtm" not in sc.get_text()]
-    print("::notice title=Ladění skripty::" + " ||| ".join(skripty)[:4000].replace("%", "%25"))
     try:
         return parse_kalendar(r.text, mesic)
     except FlowError as e:
@@ -247,7 +236,7 @@ def main():
             if stav_pred.get("volno", {}).get(klic) != text:
                 (plne if mist >= POCET_OSOB else jedno).append(f"{fmt(d)}: {text}")
 
-    if stav_pred.get("chyba_hlasena"):
+    if stav_pred.get("chyba_hlasena") and not prvni_beh:
         posli(topic, "Hlídač Mazdy zase běží", "Kontrola volných míst už funguje.",
               priorita="low", tagy="white_check_mark")
 
