@@ -145,6 +145,13 @@ def nacti_kalendar(session, mesic):
         raise FlowError("nepodařilo se dostat do kroku 2 | " + popis_stranky(r.text))
     fid = flow_id(r.text)
     print("::notice title=Ladění (krok 2 před výběrem jazyka)::" + popis_stranky(r.text))
+    soup = BeautifulSoup(r.text, "html.parser")
+    for i, f in enumerate(soup.find_all("form")):
+        for t in f.select("table, p, ul.mm-input-error, .mm-box-large"):
+            t.decompose()
+        raw = " ".join(str(f).split())
+        print(f"::notice title=Ladění formulář {i}::" + raw[:4000].replace("%", "%25"))
+    print("::notice title=Ladění cookies::" + ", ".join(session.cookies.keys()))
 
     # krok 2: jazyk + měsíc (stejné jako přepnutí výběru na stránce)
     r = post(session, url_sched, {
