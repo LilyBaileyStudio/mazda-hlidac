@@ -159,6 +159,15 @@ def nacti_kalendar(session, mesic):
         "guide_lang": JAZYK,
         "specified_month_1": mesic,
     }, url_sched)
+    soup = BeautifulSoup(r.text, "html.parser")
+    cal = soup.select_one('[data-input-type="calendar"]')
+    raw = " ".join(str(cal).split()) if cal else "(bez kalendáře)"
+    print("::notice title=Ladění kalendář začátek::" + raw[:5000].replace("%", "%25"))
+    i = raw.find("Nov. 26")
+    print("::notice title=Ladění kalendář 26.::" + raw[max(0, i - 200):i + 1500].replace("%", "%25"))
+    skripty = [" ".join(sc.get_text().split())[:1500] for sc in soup.find_all("script")
+               if sc.get_text().strip() and "BOOMR" not in sc.get_text() and "gtm" not in sc.get_text()]
+    print("::notice title=Ladění skripty::" + " ||| ".join(skripty)[:4000].replace("%", "%25"))
     try:
         return parse_kalendar(r.text, mesic)
     except FlowError as e:
