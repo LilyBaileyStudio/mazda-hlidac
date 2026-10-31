@@ -1,0 +1,41 @@
+name: Hlídač Mazda Museum
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # každých 15 minut (GitHub to občas o pár minut zpozdí)
+  workflow_dispatch:          # ruční spuštění tlačítkem "Run workflow"
+
+concurrency:
+  group: hlidac
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests beautifulsoup4
+
+      # stav z minulého běhu (co už bylo ohlášeno), aby notifikace nechodily dokola
+      - uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: stav-${{ github.run_id }}
+          restore-keys: stav-
+
+      - name: Kontrola volných míst
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python mazda_hlidac.py
+
+      - uses: actions/cache/save@v4
+        if: always() && hashFiles('state.json') != ''
+        with:
+          path: state.json
+          key: stav-${{ github.run_id }}
