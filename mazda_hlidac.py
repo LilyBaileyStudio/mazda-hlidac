@@ -79,15 +79,15 @@ def parse_kalendar(html, mesic):
         n = re.search(r"(\d+)\s*places?\s+available", text, re.I)
 
         if "fully booked" in text.lower() or "closed" in text.lower():
-            volno = False
+            mist = 0
         elif n:
-            volno = int(n.group(1)) >= POCET_OSOB
+            mist = int(n.group(1))
         else:
-            # neznámý stav (např. jen tlačítko k výběru) – raději ohlásit
-            volno = ma_radio or bool(text)
+            # neznámý stav (např. jen tlačítko k výběru) – brát jako volno
+            mist = POCET_OSOB if (ma_radio or text) else 0
         if ma_radio:
-            volno = True
-        vysledek[den] = (volno, text or "(volno)")
+            mist = max(mist, POCET_OSOB)
+        vysledek[den] = (mist, text or "(volno)")
     if not vysledek:
         raise FlowError("tabulka s termíny je prázdná")
     return vysledek
@@ -193,25 +193,29 @@ def main():
         uloz_stav(stav)
         return 0
 
-    zpravy = []
+    plne, jedno = [], []  # nové / změněné dny s dostatkem míst, resp. jen 1 místem
     for d in dny:
-        volno, text = kalendare[d.strftime("%Y%m")].get(d.day, (False, "?"))
-        print(f"{fmt(d)}: {text} -> {'VOLNO' if volno else 'plno'}")
+        mist, text = kalendare[d.strftime("%Y%m")].get(d.day, (0, "?"))
+        print(f"{fmt(d)}: {text} -> volných míst: {mist}")
         klic = d.isoformat()
-        if volno:
+        if mist >= 1:
             stav["volno"][klic] = text
             if stav_pred.get("volno", {}).get(klic) != text:
-                zpravy.append(f"{fmt(d)}: {text}")
+                (plne if mist >= POCET_OSOB else jedno).append(f"{fmt(d)}: {text}")
 
     if stav_pred.get("chyba_hlasena"):
         posli(topic, "Hlídač Mazdy zase běží", "Kontrola volných míst už funguje.",
               priorita="low", tagy="white_check_mark")
 
-    if zpravy:
-        posli(topic, "Mazda: uvolnilo se místo v angličtině!",
-              "\n".join(zpravy) + f"\nProhlídka 14:15–16:15, potřeba {POCET_OSOB} místa. "
+    if plne:
+        posli(topic, f"Mazda: volná {POCET_OSOB} místa v angličtině!",
+              "\n".join(plne + jedno) + "\nProhlídka 14:15–16:15. "
               "Klepni a změň rezervaci (Booking ID + heslo).",
               priorita="urgent", odkaz=LOGIN_URL)
+    elif jedno:
+        posli(topic, "Mazda: zatím jen 1 místo v angličtině",
+              "\n".join(jedno) + "\nProhlídka 14:15–16:15. Na vás oba to zatím nestačí.",
+              priorita="high", tagy="hourglass", odkaz=LOGIN_URL)
     elif prvni_beh:
         posli(topic, "Hlídač Mazdy běží",
               "Hlídám anglickou prohlídku na " + " a ".join(fmt(d) for d in dny)
