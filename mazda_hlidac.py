@@ -94,40 +94,68 @@ def parse_kalendar(html, mesic):
 
 
 # ------------------------------------------------------------ průchod webem
+def popis_stranky(html):
+    """Krátký popis stránky pro ladění, když se průchod webem nepovede."""
+    soup = BeautifulSoup(html, "html.parser")
+    hid = {i.get("name"): i.get("value") for i in soup.find_all("input", {"type": "hidden"})
+           if i.get("name") != "flow_id"}
+    radio = [f"{i.get('name')}={i.get('value')}" for i in soup.find_all("input", {"type": "radio"})
+             if i.has_attr("checked")]
+    sel = [f"{x.get('name')}={o.get('value')}" for x in soup.find_all("select")
+           for o in x.find_all("option") if o.has_attr("selected")]
+    chyby = [li.get_text(" ", strip=True) for li in soup.select(".mm-input-error li, p.mm-input-error")
+             if "display: none" not in (li.get("style") or "")]
+    radky = [" ".join(tr.get_text(" ", strip=True).split())
+             for tr in soup.select('[data-input-type="calendar"] tbody tr')][:2]
+    return (f"krok={aktualni_krok(html)} hidden={hid} radio={radio} select={sel} "
+            f"chyby={chyby[:3]} radky={radky} delka={len(html)}")
+
+
+def post(session, url, data, odkud):
+    r = session.post(url, data=data, timeout=30,
+                     headers={"Referer": odkud, "Origin": "https://www2.mazda.com"})
+    r.raise_for_status()
+    return r
+
+
 def nacti_kalendar(session, mesic):
-    r = session.get(BASE + "/new/terms.html", timeout=30)
+    url_terms = BASE + "/new/terms.html"
+    url_input1 = BASE + "/new/input1.html"
+    url_sched = BASE + "/new/schedule.html"
+
+    r = session.get(url_terms, timeout=30)
     r.raise_for_status()
     fid = flow_id(r.text)
 
     # krok 0: souhlas s Privacy Policy
-    r = session.post(BASE + "/new/input1.html",
-                     data={"flow_id": fid, "agree_terms": "同意する"}, timeout=30)
-    r.raise_for_status()
+    r = post(session, url_input1, {"flow_id": fid, "agree_terms": "同意する"}, url_terms)
     if aktualni_krok(r.text) != "1":
-        raise FlowError("nepodařilo se dostat do kroku 1")
+        raise FlowError("nepodařilo se dostat do kroku 1 | " + popis_stranky(r.text))
     fid = flow_id(r.text)
 
     # krok 1: bez vozíčkáře, jednotlivci / skupina do 10, počet osob
-    r = session.post(BASE + "/new/schedule.html", data={
+    r = post(session, url_sched, {
         "flow_id": fid,
         "wheelchair_visit": "0",
         "subscribe_type": "1",
         "numberof_visit": str(POCET_OSOB),
         "numberof_bus": "",
-    }, timeout=30)
-    r.raise_for_status()
+    }, url_input1)
     if aktualni_krok(r.text) != "2":
-        raise FlowError("nepodařilo se dostat do kroku 2")
+        raise FlowError("nepodařilo se dostat do kroku 2 | " + popis_stranky(r.text))
     fid = flow_id(r.text)
+    print("::notice title=Ladění (krok 2 před výběrem jazyka)::" + popis_stranky(r.text))
 
     # krok 2: jazyk + měsíc (stejné jako přepnutí výběru na stránce)
-    r = session.post(BASE + "/new/schedule.html", data={
+    r = post(session, url_sched, {
         "flow_id": fid,
         "guide_lang": JAZYK,
         "specified_month_1": mesic,
-    }, timeout=30)
-    r.raise_for_status()
-    return parse_kalendar(r.text, mesic)
+    }, url_sched)
+    try:
+        return parse_kalendar(r.text, mesic)
+    except FlowError as e:
+        raise FlowError(f"{e} | " + popis_stranky(r.text)) from None
 
 
 # ------------------------------------------------------------ notifikace
