@@ -19,7 +19,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------- nastavení
-HLIDANE_DNY = [date(2026, 11, 26), date(2026, 11, 27)]
+HLIDANE_DNY = [date(2026, 11, 26)]  # 27. 11. už máme zarezervované
 POCET_OSOB = 2
 JAZYK = "1"  # 0 = japonština, 1 = angličtina
 
